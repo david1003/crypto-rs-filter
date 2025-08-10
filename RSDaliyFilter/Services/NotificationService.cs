@@ -102,9 +102,31 @@ public class NotificationService : INotificationService
     public async Task SendContractUpdateNotificationAsync(string message)
     {
         string? tgContractUpdateChannelChatId = _configuration["AppSettings:TgContractUpdateChatId"];
+        string? resultFolderPath = _configuration["AppSettings:RSRankDailyResultPath"];
         ArgumentException.ThrowIfNullOrWhiteSpace(tgContractUpdateChannelChatId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(resultFolderPath);
 
-        await _telegramHelper.SendMessageToChannelAsync(tgContractUpdateChannelChatId, message);
-        Console.WriteLine("已發送合約變更通知。");
+        // 取得當天所有交易對清單用於 TradingView 附件
+        var allSymbols = await _exchangeService.GetTradingPairs();
+        
+        // 獲取忽略清單並過濾
+        string? ignoreCryptoListString = _configuration["AppSettings:IgnoreCryptoList"];
+        List<string> ignoreCryptoList = string.IsNullOrEmpty(ignoreCryptoListString)
+            ? new List<string>()
+            : ignoreCryptoListString.Split(',').Select(s => s.Trim()).ToList();
+        
+        var filteredSymbols = allSymbols.Where(s => !ignoreCryptoList.Contains(s)).ToList();
+
+        // 寫入 TradingView 清單
+        string tvFileName = $"contractForTv{SystemConstants.OutputFileExtension}";
+        string tvContractResult = _exchangeService.ConvertSymbolsToTradingViewFormat(filteredSymbols);
+        string tvFileFullPath = await Tools.WriteTextToFile(resultFolderPath, tvFileName, tvContractResult);
+
+        // 傳到 TG
+        string tgContractFileName = $"{DateTime.Now:MMdd} USDT Contracts.txt";
+
+        // 發送帶有附件的通知
+        await _telegramHelper.SendFileToTelegramChannelAsync(tgContractUpdateChannelChatId, tvFileFullPath, message, tgContractFileName);
+        Console.WriteLine("已發送合約變更通知和 TradingView 附件。");
     }
 }

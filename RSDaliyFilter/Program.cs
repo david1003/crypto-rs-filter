@@ -86,7 +86,7 @@ namespace RSDailyFilter
                 //刪除十天前的資料夾
                 if (exchangeService.ServiceType != ExchangeServiceEnum.File)
                 {
-                    DeleteOldResultFolders(folderPath, 10);
+                    DeleteOldResultFolders(folderPath, 30);
                 }
 
                 Console.WriteLine("RS Daily Filter End.");
@@ -99,7 +99,7 @@ namespace RSDailyFilter
         }
 
         /// <summary>
-        /// 刪除結果資料夾下，十天前的資料夾
+        /// 刪除結果資料夾下，n天前的資料夾
         /// </summary>
         private static void DeleteOldResultFolders(string resultRootPath, int daysToKeep = 10)
         {

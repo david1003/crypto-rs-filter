@@ -103,7 +103,9 @@ namespace RSDailyFilter.Helper
                 }
                 else
                 {
+                    string responseContent = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"TG發送失敗，狀態碼: {response.StatusCode}");
+                    Console.WriteLine($"錯誤詳情: {responseContent}");
                 }
             }
             catch (Exception ex)

@@ -29,60 +29,76 @@ namespace RSDailyFilter.Services
             ArgumentNullException.ThrowIfNull(symbols);
             ArgumentException.ThrowIfNullOrWhiteSpace(dailyResultFolderPath);
 
-            var symbolsFileName = _configuration["AppSettings:SymbolPriceFileName"];
-            ArgumentException.ThrowIfNullOrWhiteSpace(symbolsFileName);
+            var symbolOutputFileName = _configuration["AppSettings:SymbolOutputFileName"];
+            ArgumentException.ThrowIfNullOrWhiteSpace(symbolOutputFileName);
 
-            // 取得昨日資料夾路徑
-            string yesterdayPath = Path.Combine(
-                Path.GetDirectoryName(dailyResultFolderPath)!,
-                DateTime.Now.AddDays(-1).ToString(SystemConstants.FolderDateFormat)
-            );
+            // 獲取忽略清單並過濾
+            string? ignoreCryptoListString = _configuration["AppSettings:IgnoreCryptoList"];
+            List<string> ignoreCryptoList = string.IsNullOrEmpty(ignoreCryptoListString)
+                ? new List<string>()
+                : ignoreCryptoListString.Split(',').Select(s => s.Trim()).ToList();
+            
+            var filteredSymbols = symbols.Where(s => !ignoreCryptoList.Contains(s)).ToList();
 
-            List<string>? yesterdaySymbols = null;
-            if (Directory.Exists(yesterdayPath))
+            bool isSymbolDiff = false;
+            StringBuilder resultMessage = new StringBuilder();
+
+            string? resultFolderPath = _configuration["AppSettings:RSRankDailyResultPath"];
+            ArgumentException.ThrowIfNullOrWhiteSpace(resultFolderPath);
+            
+            string contractFileFullPath = Path.Combine(resultFolderPath, symbolOutputFileName);
+            
+            List<string> previousSymbols = new List<string>();
+            if (File.Exists(contractFileFullPath))
             {
-                try
-                {
-                    string yesterdaySymbolFileContent = await Tools.ReadFileContent(yesterdayPath, symbolsFileName);
-                    if (!string.IsNullOrEmpty(yesterdaySymbolFileContent))
-                    {
-                        yesterdaySymbols = yesterdaySymbolFileContent
-                            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                            .Select(line => line.Split('|')[0])
-                            .ToList();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"讀取昨日合約資料失敗: {ex.Message}");
-                }
+                var fileContent = await File.ReadAllTextAsync(contractFileFullPath);
+                previousSymbols = fileContent.Split(',').Where(s => !string.IsNullOrWhiteSpace(s) && !ignoreCryptoList.Contains(s.Trim())).Select(s => s.Trim()).ToList();
             }
 
-            // 比較並準備訊息
-            if (yesterdaySymbols != null && !symbols.SequenceEqual(yesterdaySymbols))
+            // 沒有之前的資料就轉成清單存檔並且po出
+            if (previousSymbols.Count == 0)
             {
-                var newSymbols = symbols.Except(yesterdaySymbols).ToList();
-                var removedSymbols = yesterdaySymbols.Except(symbols).ToList();
-
-                StringBuilder message = new StringBuilder("永續合約變更通知:\n");
-                
-                if (newSymbols.Any())
-                {
-                    message.AppendLine($"新增合約 ({newSymbols.Count}): {string.Join(", ", newSymbols.Select(s => s.Replace("USDT", "")))}");
-                }
-                
-                if (removedSymbols.Any())
-                {
-                    message.AppendLine($"移除合約 ({removedSymbols.Count}): {string.Join(", ", removedSymbols.Select(s => s.Replace("USDT", "")))}");
-                }
-
-                return message.ToString();
+                isSymbolDiff = true;
+                resultMessage.AppendLine("重新輸出合約清單。");
             }
             else
             {
-                Console.WriteLine("合約無變更。");
-                return null;
+                var addedSymbols = filteredSymbols.Except(previousSymbols).ToList();
+                var removedSymbols = previousSymbols.Except(filteredSymbols).ToList();
+
+                if (addedSymbols.Any() || removedSymbols.Any())
+                {
+                    isSymbolDiff = true;
+
+                    // 列出新增和刪除的交易對
+                    if (addedSymbols.Any())
+                    {
+                        resultMessage.AppendLine("新增的交易對:");
+                        resultMessage.AppendLine($"{string.Join(", ", addedSymbols)}");
+                    }
+
+                    if (removedSymbols.Any())
+                    {
+                        resultMessage.AppendLine("刪除的交易對:");
+                        resultMessage.AppendLine($"{string.Join(", ", removedSymbols)}");
+                    }
+                    Console.WriteLine(resultMessage.ToString());
+                }
+                else
+                {
+                    Console.WriteLine("交易對清單沒有變化。");
+                }
             }
+
+            if (isSymbolDiff)
+            {
+                // 保存當前的交易對清單
+                await Tools.WriteTextToFile(resultFolderPath, symbolOutputFileName, string.Join(",", filteredSymbols));
+                
+                return resultMessage.ToString();
+            }
+
+            return null;
         }
 
         /// <summary>
